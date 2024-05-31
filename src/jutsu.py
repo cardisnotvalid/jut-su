@@ -1,57 +1,34 @@
 import re
-import json
-from collections import namedtuple
+from typing import Optional, List, Dict, Any
 
 from selectolax.parser import HTMLParser
 
+from .models import *
+from .logger import logger
 from .session import Session
 
-URL_BASE = "https://jut.su"
-URL_ANIME = f"{URL_BASE}/anime"
-
-REGEX_FILM = r"\/film-(\d+)"
-REGEX_SEASON = r"\/season-(\d+)"
-REGEX_EPISODE = r"\/episode-(\d+)"
-REGEX_BLOCKED = r"block_video_text"
-
-Search = namedtuple("Search", ["name", "url"])
-Video = namedtuple("Video", ["quality", "url"])
-Anime = namedtuple("Anime", ["name", "episodes", "url"])
-Episode = namedtuple("Episode", ["id", "season", "url"])
-
 class JutSu:
-    def __init__(self):
-        self.session = Session()
+    url_base = "https://jut.su"
+    url_anime = url_base + "/anime"
+
+    def __init__(self, session: Optional[Session] = None) -> None:
+        self.session = session or Session()
     
-    def __enter__(self):
+    def __enter__(self) -> "JutSu":
         return self
     
-    def __exit__(self, *args):
+    def __exit__(self, *args) -> None:
         self.close()
 
-    def close(self):
+    def close(self) -> None:
         self.session.close()
 
-    def search(self, query, page=1):
+    def search(self, query: str, page: int = 1) -> List[Search]:
         payload = {
             "ajax_load": "yes",
-            "start_from_page": page,
             "show_search": query,
-        }
-        html = self.session.download_html(URL_ANIME, payload)
-        return self.parse_search(html)
-
-    def anime(self, anime):
-        html = self.session.download_html(anime.url)
-        episodes = self.parse_episodes(html)
-        return Anime(name=anime.name, episodes=episodes, url=anime.url)
-
-    def get_episode_videos(self, episode):
-        html = self.session.download_html(episode.url)
-        return self.parse_video(html)
-
-    @staticmethod
-    def parse_search(html):
+            "start_from_page": page}
+        html = self.session.download_html(self.url_anime, payload)
         tree = HTMLParser(html)
         result = []
 
@@ -59,53 +36,51 @@ class JutSu:
             content = HTMLParser(item.attributes["content"])
             body = content.css_first(".tooltip_title_in_anime")
 
-            anime = Search(
-                name=body.text(strip=True),
-                url=URL_BASE + body.attributes["href"])
-            result.append(anime)
+            name = body.text(strip=True)
+            url = self.url_base + body.attributes["href"]
+            result.append(Search(name=name, url=url))
 
         return result
 
-    @staticmethod
-    def parse_episodes(html):
+    def get_anime(self, anime: Search) -> Anime:
+        html = self.session.download_html(anime.url)
         tree = HTMLParser(html)
         episodes = []
 
         for item in tree.css("a.video"):
-            url = URL_BASE + item.attributes["href"]
-
+            url = self.url_base + item.attributes["href"]
             id, season = 1, 1
-            match_film = re.search(REGEX_FILM, url)
-            if match_film:
-                id = match_film.group(1)
+
+            m_film = re.search(r"\/film-(\d+)", url)
+            if m_film:
+                id = m_film.group(1)
                 season = 0
             else:
-                match_season = re.search(REGEX_SEASON, url)
-                if match_season:
-                    season = match_season.group(1)
+                m_season = re.search(r"\/season-(\d+)", url)
+                if m_season:
+                    season = m_season.group(1)
 
-                match_id = re.search(REGEX_EPISODE, url)
-                if match_id:
-                    id = match_id.group(1)
+                m_id = re.search(r"\/episode-(\d+)", url)
+                if m_id:
+                    id = m_id.group(1)
+            episodes.append(Episode(id=id, season=season, url=url))
 
-            episode = Episode(id=id, season=season, url=url)
-            episodes.append(episode)
+        return Anime(name=anime.name, episodes=episodes, url=anime.url)
 
-        return episodes
+    def get_episode_video(self, episode: Episode) -> List[Video]:
+        html = self.session.download_html(episode.url)
 
-    @staticmethod
-    def parse_video(html):
-        match_blocked = re.findall(REGEX_BLOCKED, html)
-        if match_blocked:
-            print("Video is not available")
+        m_blocked = re.findall(r"block_video_text", html)
+        if m_blocked:
+            logger.error("Видео недоступно")
             return None
 
         tree = HTMLParser(html)
         videos = []
 
         for item in tree.css("source"):
-            attrs = item.attributes
-            video = Video(quality=attrs["label"], url=attrs["src"])
-            videos.append(video)
+            quality = item.attributes["label"]
+            url = item.attributes["src"]
+            videos.append(Video(quality=quality, url=url))
 
         return videos
