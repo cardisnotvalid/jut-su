@@ -1,97 +1,124 @@
 import re
+from typing import NamedTuple
 from urllib.parse import urlparse
-from typing import List, Dict, Any
 
 from selectolax.parser import HTMLParser
 
-from .models import *
-from .logger import logger
 from .session import Session
+from .exceptions import CantGetSourceVideo, SourceVideoIsBlocked
+from .logger import logger
+
+
+class Video(NamedTuple):
+    quality: str
+    ext: str
+    url: str
+
+class Episode(NamedTuple):
+    id: str
+    season: str
+    url: str
+
+class Anime(NamedTuple):
+    name: str
+    episodes: list[Episode]
+    url: str
+
 
 class JutSu:
     url_base = "https://jut.su"
     url_anime = url_base + "/anime"
 
-    def __init__(self, session: Session = None) -> None:
+    def __init__(self, session: Session = None):
         self.session = session or Session()
-    
-    def __enter__(self) -> "JutSu":
+
+    def __enter__(self):
         return self
-    
-    def __exit__(self, *args) -> None:
+
+    def __exit__(self, *args):
         self.close()
 
-    def close(self) -> None:
+    def close(self):
         self.session.close()
 
-    def search(self, query: str, page: int = 1) -> List[Search]:
-        payload = {
-            "ajax_load": "yes",
-            "show_search": query,
-            "start_from_page": page}
-        html = self.session.download_html(self.url_anime, payload)
-        if not html:
-            logger.error("Не удалось выполнить поиск")
-            return False
+    def _get_search_content(self, content: str) -> tuple[str, str]:
+        body = HTMLParser(content).css_first(".tooltip_title_in_anime")
+        return (body.text(strip=True),
+                self.url_base + body.attributes["href"])
 
+    def _extract_search(self, html: str) -> list[Anime]:
         tree = HTMLParser(html)
         result = []
         for item in tree.css(".tooltip_of_the_anime"):
-            content = HTMLParser(item.attributes["content"])
-            body = content.css_first(".tooltip_title_in_anime")
-
-            name = body.text(strip=True)
-            url = self.url_base + body.attributes["href"]
-            result.append(Search(name=name, url=url))
-
+            (name, url) = self._get_search_content(item.attributes["content"])
+            result.append(Anime(name, [], url))
         return result
 
-    def get_anime(self, anime: Search) -> Anime:
-        html = self.session.download_html(anime.url)
-        if not html:
-            logger.error("Не удалось получить аниме")
-            return False
+    def search(self, query: str, page: int = 1) -> list[Anime]:
+        html = self.session.get_html_content(
+            self.url_anime, 
+            data=dict(ajax_load="yes", show_search=query, start_from_page=page))
+        return self._extract_search(html)
 
-        tree = HTMLParser(html)
+    def _find_match(self, pattern: str, string: str) -> str | None:
+        match = re.search(pattern, string)
+        return match.group(1) if match else None
+
+    def _get_film_id(self, string: str) -> str | None:
+        return self._find_match(r"\/film-(\d+)", string)
+
+    def _get_season_id(self, string: str) -> str | None:
+        return self._find_match(r"\/season-(\d+)", string)
+
+    def _get_episode_id(self, string: str) -> str | None:
+        return self._find_match(r"\/episode-(\d+)", string)
+
+    def _get_episode_season(self, url: str):
+        episode_id = season = 1
+        if film_id := self._get_film_id(url):
+            episode_id = film_id
+            season = 0
+        else:
+            if season_id := self._get_season_id(url):
+                season = season_id
+            if episode_id := self._get_episode_id(url):
+                episode_id = episode_id
+        return (episode_id, season)
+
+    def _extract_episodes(self, html: str):
         episodes = []
-        for item in tree.css("a.video"):
+        for item in HTMLParser(html).css("a.video"):
             url = self.url_base + item.attributes["href"]
-            id, season = 1, 1
+            (episode_id, season) = self._get_episode_season(url)
+            episodes.append(Episode(str(episode_id), str(season), url))
+        return episodes
 
-            m_film = re.search(r"\/film-(\d+)", url)
-            if m_film:
-                id = m_film.group(1)
-                season = 0
-            else:
-                m_season = re.search(r"\/season-(\d+)", url)
-                if m_season:
-                    season = m_season.group(1)
+    def get_anime(self, anime: Anime) -> Anime:
+        html = self.session.get_html_content(anime.url)
+        episodes = self._extract_episodes(html)
+        return Anime(anime.name, episodes, anime.url)
 
-                m_id = re.search(r"\/episode-(\d+)", url)
-                if m_id:
-                    id = m_id.group(1)
-            episodes.append(Episode(id=str(id), season=str(season), url=url))
-
-        return Anime(name=anime.name, episodes=episodes, url=anime.url)
-
-    def get_episode_video(self, episode: Episode) -> List[Video]:
-        html = self.session.download_html(episode.url)
-        if not html:
-            logger.error("Не удалось получить видео")
-            return False
-
-        m_blocked = re.findall(r"block_video_text", html)
-        if m_blocked:
-            logger.error("Видео недоступно")
-            return False
-
-        tree = HTMLParser(html)
-        videos = []
-
-        for item in tree.css("source"):
-            quality = item.attributes["label"]
-            url = item.attributes["src"]
+    def _parse_video_attrs(self, source: dict[str, str]) -> tuple[str, ...]:
+        try:
+            quality = source["label"]
+            url = source["src"]
             ext = urlparse(url).path.rsplit(".", 1)[-1]
-            videos.append(Video(quality=quality, ext=ext, url=url))
+            return (quality, ext, url)
+        except KeyError:
+            raise CantGetSourceVideo
 
+    def _extract_videos(self, html: str) -> list[Video]:
+        videos = []
+        for item in HTMLParser(html).css("source"):
+            (quality, ext, url) = self._parse_video_attrs(item.attributes)
+            videos.append(Video(quality, ext, url))
         return videos
+
+    def _check_is_video_blocked(self, html: str):
+        if re.findall(r"block_video_text", html):
+            raise SourceVideoIsBlocked
+
+    def get_episode_video(self, episode: Episode) -> list[Video]:
+        html = self.session.get_html_content(episode.url)
+        self._check_is_video_blocked(html)
+        return self._extract_videos(html)
