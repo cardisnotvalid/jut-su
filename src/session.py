@@ -2,9 +2,14 @@ import os
 import urllib3
 from urllib3.response import BaseHTTPResponse
 from urllib3.exceptions import HTTPError
-from typing import Literal, Generator
+from pathlib import Path
+from typing import Literal, Generator, Mapping, Any
 
-from .exceptions import CantGetRequestContent, ResponseStatusCodeError
+from .exceptions import (
+    CantGetRequestContent, 
+    ResponseStatusCodeError, 
+    CantGetSourceVideo
+)
 from .logger import logger
 
 
@@ -14,7 +19,7 @@ RequestMethod = Literal["GET", "POST"]
 
 
 class Session:
-    def __init__(self, headers: dict[str, str] | None = {}):
+    def __init__(self, headers: Mapping[str, str] = {}):
         self.headers = {"User-Agent": DEFAULT_USER_AGENT}
         self.headers.update(headers)
 
@@ -41,7 +46,7 @@ class Session:
         if response.status != 200:
             raise ResponseStatusCodeError(response.status, response.reason)
 
-    def _post(self, url: str, data: dict[str, any]) -> BaseHTTPResponse:
+    def _post(self, url: str, data: dict[str, Any]) -> BaseHTTPResponse:
         return self._request("POST", url, **{"fields": data})
 
     def _get(self, url: str, **kwargs) -> BaseHTTPResponse:
@@ -57,9 +62,11 @@ class Session:
 
     def _get_response_content_size(self, response: BaseHTTPResponse) -> float:
         content_length = response.getheader("Content-Length")
+        if not content_length:
+            raise CantGetSourceVideo
         return int(content_length) / (1<<20)
 
-    def _write_video(self, response: BaseHTTPResponse, filepath: str) -> None:
+    def _write_video(self, response: BaseHTTPResponse, filepath: Path | str) -> None:
         if os.path.isfile(filepath):
             with open(filepath, "wb") as file:
                 file.truncate(0)
@@ -68,11 +75,11 @@ class Session:
             for chunk in self._open_response_stream(response):
                 f.write(chunk)
 
-    def get_html_content(self, url: str, data: dict[str, any] | None = None) -> str:
+    def get_html_content(self, url: str, data: dict[str, Any] | None = None) -> str:
         response = self._post(url, data) if data else self._get(url)
         return response.data.decode("1251")
 
-    def download_video(self, url: str, filepath: str):
+    def download_video(self, url: str, filepath: Path | str):
         try:
             response = self._get(url, **{"preload_content": False})
             self._write_video(response, filepath)
