@@ -1,16 +1,14 @@
-import os
 from typing import List
 from collections import defaultdict
 
 import questionary
 
-from src.models import *
-from src.jutsu import JutSu
-from src.logger import logger
 from src.session import Session
+from src.jutsu import JutSu, Anime, Episode, Video
+from src.logger import logger
 from src.utils import create_anime_dir
 
-def quest_search(jutsu: JutSu) -> Search:
+def quest_search(jutsu: JutSu) -> Anime:
     search_answer = questionary.text("Поиск:").ask()
     if not search_answer:
         questionary.print("Вы ничего не ввели. Введите название аниме")
@@ -37,7 +35,7 @@ def quest_search(jutsu: JutSu) -> Search:
 
     return r_search
 
-def quest_anime(jutsu, data: List[Search]) -> Anime:
+def quest_anime(jutsu, data: List[Anime]) -> Anime:
     if not data:
         exit(1)
 
@@ -88,7 +86,7 @@ def quest_video(jutsu: JutSu, data: Episode) -> Video:
         item for item in r_video 
         if item.quality == quality_answer), None)
 
-def main() -> None:
+if __name__ == "__main__":
     jutsu = JutSu()
     try:
         r_search = quest_search(jutsu)
@@ -97,17 +95,12 @@ def main() -> None:
         r_video = quest_video(jutsu, r_episode)
 
         dir_path = create_anime_dir(r_anime.name, r_episode.season)
-        filename = f"{r_episode.id}.{r_video.ext}"
-        filepath = os.path.join(dir_path, filename)
+        file_name = f"{r_episode.id}.{r_video.ext}"
+        file_path = dir_path / file_name
 
-        if not jutsu.session.download_video(r_video.url, filepath):
-            logger.error("Не удалось скачать видео")
-        else:
-            logger.info(
-                "%s. Сезон %s. Эпизод %s успешно скачалось",
-                r_anime.name, r_episode.season, r_episode.id)
+        jutsu.session.download_video(r_video.url, file_path)
+        logger.info("%s. Сезон %s. Эпизод %s успешно скачалось", 
+                    r_anime.name, r_episode.season, r_episode.id)
     finally:
         jutsu.close()
 
-if __name__ == "__main__":
-    main()
