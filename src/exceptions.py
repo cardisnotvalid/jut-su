@@ -9,3 +9,8 @@ class ResponseStatusCodeError(Exception):
 class CantGetRequestContent(Exception):
     pass
 
+class CantGetSourceVideo(Exception):
+    pass
+
+class SourceVideoIsBlocked(Exception):
+    pass
