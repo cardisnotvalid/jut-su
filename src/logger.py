@@ -1,6 +1,7 @@
 import sys
 import logging
 
+
 FORMAT_LOG  = "%(levelname)s: %(message)s"
 FORMAT_DATE = "%H:%M:%S"
 

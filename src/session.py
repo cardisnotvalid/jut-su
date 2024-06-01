@@ -4,27 +4,29 @@ from urllib3.response import BaseHTTPResponse
 from urllib3.exceptions import HTTPError
 from typing import Literal, Generator
 
-from .logger import logger
 from .exceptions import CantGetRequestContent, ResponseStatusCodeError
+from .logger import logger
+
 
 DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 
 RequestMethod = Literal["GET", "POST"]
 
+
 class Session:
-    def __init__(self, headers: dict[str, str] | None = {}) -> None:
+    def __init__(self, headers: dict[str, str] | None = {}):
         self.headers = {"User-Agent": DEFAULT_USER_AGENT}
         self.headers.update(headers)
 
         self.session = urllib3.PoolManager(headers=headers)
 
-    def __enter__(self) -> "Session":
+    def __enter__(self):
         return self
 
-    def __exit__(self, *args) -> None:
+    def __exit__(self, *args):
         self.close()
 
-    def close(self) -> None:
+    def close(self):
         self.session.clear()
 
     def _request(self, method: RequestMethod, url: str, **kwargs) -> BaseHTTPResponse:
@@ -35,7 +37,7 @@ class Session:
         except HTTPError:
             raise CantGetRequestContent
 
-    def _check_response_status(self, response: BaseHTTPResponse) -> None:
+    def _check_response_status(self, response: BaseHTTPResponse):
         if response.status != 200:
             raise ResponseStatusCodeError(response.status, response.reason)
 
@@ -56,8 +58,8 @@ class Session:
     def _get_response_content_size(self, response: BaseHTTPResponse) -> float:
         content_length = response.getheader("Content-Length")
         return int(content_length) / (1<<20)
-    
-    def _save_video_to_file(self, response: BaseHTTPResponse, filepath: str) -> None:
+
+    def _write_video(self, response: BaseHTTPResponse, filepath: str) -> None:
         if os.path.isfile(filepath):
             with open(filepath, "wb") as file:
                 file.truncate(0)
@@ -70,9 +72,9 @@ class Session:
         response = self._post(url, data) if data else self._get(url)
         return response.data.decode("1251")
 
-    def download_video(self, url: str, filepath: str) -> None:
+    def download_video(self, url: str, filepath: str):
         try:
             response = self._get(url, **{"preload_content": False})
-            self._save_video_to_file(response, filepath)
+            self._write_video(response, filepath)
         finally:
             response.release_conn()
