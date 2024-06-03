@@ -28,19 +28,23 @@ class Search(NamedTuple):
 
 class Video(NamedTuple):
     label: str
-    resolution: int
-    extension: str
     source: str
 
 
 class DataFormatter:
-    def format(self, data):
-        pass
+    try:
+        def format(self, data):
+            pass
+    except Exception as err:
+        raise NotImplementedError(err)
 
 
 class SearchFormatter(DataFormatter):
     def format(self, data):
-        return [Search(name=name, url=URL_BASE+url) for url, name in data]
+        result = []
+        for url, name in data:
+            result.append(Search(name, URL_BASE + url))
+        return result
 
 
 class EpisodeFormatter(DataFormatter):
@@ -68,35 +72,19 @@ class VideoFormatter(DataFormatter):
     def format(self, data):
         result = []
         for item in data:
-            video = Video(
-                label=item[3], 
-                resolution=item[4], 
-                extension=item[1], 
-                source=item[0]
-            )
-            result.append(video)
+            result.append(Video(label=item[1], source=item[0]))
         return result
 
 
 class Formatter:
-    def __init__(self):
-        self.formatters = {
-            "search": SearchFormatter,
-            "episode": EpisodeFormatter,
-            "video": VideoFormatter
-        }
-
-    def _get_formatter(self, formatter):
-        return self.formatters[formatter]()
-
     def _format(self, data, formatter):
-        return self._get_formatter(formatter).format(data)
+        return formatter.format(data)
 
     def format_search(self, data):
-        return self._format(data, "search")
+        return self._format(data, SearchFormatter())
 
     def format_episodes(self, data):
-        return self._format(data, "episode")
+        return self._format(data, EpisodeFormatter())
 
     def format_videos(self, data):
-        return self._format(data, "video")
+        return self._format(data, VideoFormatter())
