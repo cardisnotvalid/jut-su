@@ -5,11 +5,11 @@ from .formatter import Search, Series, Video
 
 
 class Question:
-    try:
-        def ask(self):
+    def ask(self):
+        try:
             pass
-    except Exception as err:
-        raise NotImplementedError(err)
+        except Exception as err:
+            raise NotImplementedError(err)
 
 
 class TextQuestion(Question):
@@ -33,6 +33,10 @@ class SelectQuestion(Question):
 
 class SearchQuestion(TextQuestion):
     _QUESTION = "Поиск:"
+
+
+class ActionQuestion(SelectQuestion):
+    _QUESTION = "Выберите действие:"
 
 
 class AnimeQuestion(SelectQuestion):
@@ -88,6 +92,12 @@ class Questioner:
     def _ask(self, questioner):
         return questioner.ask()
 
+    def print(self, text):
+        questionary.print(text)
+
+    def action_question(self, choices):
+        return self._ask(ActionQuestion(choices))
+
     def search_question(self):
         return self._ask(SearchQuestion())
 
@@ -107,3 +117,26 @@ class Questioner:
         choices = self.choice_builder.video_choices(choices)
         return self._ask(VideoQuestion(choices))
 
+
+def start_questions(jutsu):
+    questioner = Questioner()
+
+    while True:
+        search_target = questioner.search_question()
+        if search_target == "q":
+            exit(0)
+        elif not search_target:
+            questioner.print("Вы ничего не ввели")
+            action = questioner.action_question(["Поиск", "Выйти"])
+            if action == "Выйти":
+                exit(0)
+        else:
+            break
+
+    searched_list = jutsu.search_anime(search_target)
+    anime_url = questioner.anime_question(searched_list)
+    episodes = jutsu.get_anime_episodes(anime_url)
+    season = questioner.season_question(episodes)
+    episode_url = questioner.episode_question(season)
+    videos = jutsu.get_episode_videos(episode_url)
+    return questioner.video_question(videos)
