@@ -24,6 +24,7 @@ class SeasonExtractor(InfoExtractor):
     def extract(self, string):
         return self._find_matches(string)
 
+
 class FilmExtractor(InfoExtractor):
     _REGEX = r'href="(?P<url>/[^/]+/film-(?P<film>\d+)\.html)"'
 
@@ -32,7 +33,7 @@ class FilmExtractor(InfoExtractor):
 
 
 class VideoExtractor(InfoExtractor):
-    _REGEX = '<source src="(?P<src>[^"]+)" type="(?P<type>[^"]+)" lang="(?P<lang>[^"]+)" label="(?P<label>[^"]+)" res="(?P<res>[^"]+)"/>' 
+    _REGEX = '<source src="(?P<src>[^"]+)"[^.]+label="(?P<label>[^"]+)"[^>]+' 
 
     def extract(self, string):
         return self._find_matches(string)
@@ -47,30 +48,21 @@ class AnimeExtractor(InfoExtractor):
 
 class Extractor:
     def __init__(self):
-        self.extractors = {
-            "season": SeasonExtractor, 
-            "film": FilmExtractor, 
-            "video": VideoExtractor,
-            "anime": AnimeExtractor
-        }
         self.formatter = Formatter()
 
-    def _get_extractor(self, name):
-        return self.extractors[name]()
-
     def _extract(self, content, extractor):
-        return self._get_extractor(extractor).extract(content)
+        return extractor.extract(content)
 
     def extract_search_data(self, content):
-        data = self._extract(content, "anime")
+        data = self._extract(content, AnimeExtractor())
         return self.formatter.format_search(data)
 
     def extract_anime_episodes(self, content):
-        episodes = self._extract(content, "season")
-        episodes.extend(self._extract(content, "film"))
+        episodes = self._extract(content, SeasonExtractor())
+        episodes.extend(self._extract(content, FilmExtractor()))
         return self.formatter.format_episodes(episodes)
 
     def extract_videos(self, content):
-        data = self._extract(content, "video")
+        data = self._extract(content, VideoExtractor())
         return self.formatter.format_videos(data)
 
